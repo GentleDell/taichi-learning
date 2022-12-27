@@ -206,6 +206,7 @@ class patch_matching():
                 
                 for prop_idx in range(self.normal_propagate_field.shape[0]):
 
+                    cost_all_ref_views = 0.0
                     for ref_idx in range(self.images.shape[0]):
                         if ref_idx == self.src_image_idx:
                             continue
@@ -218,16 +219,28 @@ class patch_matching():
                         self.get_ref_patch(
                             i, 
                             j, 
-                            self.depth_propagate_field[prop_idx][0], 
-                            self.normal_propagate_field[prop_idx], 
-                            self.intrinsics[self.src_image_idx], 
+                            self.depth_propagate_field[prop_idx],
+                            self.normal_propagate_field[prop_idx],
+                            self.intrinsics[self.src_image_idx],
                             ref_idx
                         )
 
-                        cost = self.compute_cost()
+                        cost_all_ref_views += self.compute_cost()
 
-                        if cost < self.cost_volumes[i, j]:
-                            self.cost_volumes[i, j] = cost
+                    # If this is a better guess, update the cost, depth
+                    # and the normal of the pixel.
+                    if cost_all_ref_views < self.cost_volumes[i, j]:
+                        self.cost_volumes[i, j] = cost_all_ref_views
+
+                        self.depth_maps[self.src_image_idx, i, j] = \
+                                self.depth_propagate_field[prop_idx]
+
+                        self.normal_maps[self.src_image_idx, i, j, 0] = \
+                            self.normal_propagate_field[prop_idx].x
+                        self.normal_maps[self.src_image_idx, i, j, 1] = \
+                            self.normal_propagate_field[prop_idx].y
+                        self.normal_maps[self.src_image_idx, i, j, 2] = \
+                            self.normal_propagate_field[prop_idx].z
 
     @ti.func
     def propagate_depth(self, row: int, col: int, iters: int):
@@ -235,15 +248,14 @@ class patch_matching():
 
         # Spacial propagation
         for i in range(-self.num_neighbors//2, self.num_neighbors//2+1):
-            self.depth_propagate_field[index] = ti.Vector(
-                [self.depth_maps[self.src_image_idx, row, col+i]]
-            )
+            self.depth_propagate_field[index] = \
+                self.depth_maps[self.src_image_idx, row, col+i]
             index += 1
             
         # Random refinement
         for i in range(self.num_refinement):
             self.depth_propagate_field[index] = self.depth_propagate_field[self.num_neighbors//2] + (
-                ti.Vector([ti.random(float)]) - 0.5)*self.delta_depth*ti.pow(2, -iters)
+                ti.random(float) - 0.5)*self.delta_depth*ti.pow(2, -iters)
             index += 1
 
     @ti.func
