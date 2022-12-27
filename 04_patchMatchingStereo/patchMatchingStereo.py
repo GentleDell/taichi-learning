@@ -10,12 +10,14 @@ THREE_DIMENSION = 3
 
 
 # config for debug can be optimzed
+# currently, many shared data prevents parallel computing
+# if enabel mult-threads, the cost will be significantly impacted.
 ti.init(
     arch=ti.cpu,
-    debug=True,
-    kernel_profiler=True,
+    # debug=True,
+    # kernel_profiler=True,
     cpu_max_num_threads=1,
-    advanced_optimization=False
+    # advanced_optimization=False
 )
 
 
