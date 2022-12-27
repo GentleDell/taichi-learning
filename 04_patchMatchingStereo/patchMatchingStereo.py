@@ -58,10 +58,10 @@ class patch_matching():
 
         # Patch matching input, output and intermediate data. These data
         # structures can be optimized via the advanced structure
-        self.images: ti.Vector.field                   # input images
-        self.depth_maps: ti.Vector.field               # estimated depth maps
-        self.normal_maps: ti.Vector.field              # estimated normal maps
-        self.cost_volumes: ti.Vector.field             # computed cost maps 
+        self.images: ti.field                          # input images
+        self.depth_maps: ti.field                      # estimated depth maps
+        self.normal_maps: ti.field                     # estimated normal maps
+        self.cost_volumes: ti.field                    # computed cost maps 
         self.src_image_idx: int                        # the idx of the src image
         self.intrinsics: ti.Matrix.field 
         self.extrinsics: ti.Matrix.field
@@ -69,26 +69,28 @@ class patch_matching():
         # Resolution of each image
         self.resolutions: ti.Vector.field
 
-        # Patch for cost calculation. Can be set to Matrix if the patch size
-        # is not very large and thus need to be a member.
+        # Patch for cost calculation. They prevent the solution from 
+        # parallel processing on GPU. Can be set to Matrix if the patch
+        # size is not very large and thus can be in parallel.
         self.src_patch = ti.field(dtype=ti.f32, shape=(
             self.patch_size, self.patch_size, RGB_IMAGE_DEPTH))
         self.ref_patch = ti.field(dtype=ti.f32, shape=(
             self.patch_size, self.patch_size, RGB_IMAGE_DEPTH))
         
-        # Fields for propagation
+        # Fields for propagation. Sharing these data prevent parallel 
+        # computing on GPU.
         self.normal_propagate_field = ti.Vector.field(
             n=THREE_DIMENSION,
             dtype=ti.f32,
             shape=1 + self.num_neighbors//2*2 + self.num_refinement
         )
-        self.depth_propagate_field = ti.Vector.field(
-            n=1,
+        self.depth_propagate_field = ti.field(
             dtype=ti.f32,
             shape=1 + self.num_neighbors//2*2 + self.num_refinement
         )
         
-        # Debug purpose
+        # Debug purpose. Sharing these data prevent parallel 
+        # computing on GPU.
         self.patch_cost_debug = ti.field(dtype=ti.f32, shape=(
             self.patch_size, self.patch_size))
         self.patch_grad_debug = ti.field(dtype=ti.f32, shape=(
@@ -198,6 +200,7 @@ class patch_matching():
         #     for j in range(self.resolutions[self.src_image_idx].y):
                 self.get_src_patch(i, j)
 
+                # Get all candidates for propagation
                 self.propagate_normal(i, j, iteration)
                 self.propagate_depth(i, j, iteration)
                 
@@ -207,10 +210,10 @@ class patch_matching():
                         if ref_idx == self.src_image_idx:
                             continue
                         
-                        print("calculate_cost_and_propagate",
-                            self.depth_propagate_field[prop_idx], 
-                            self.normal_propagate_field[prop_idx]
-                        )
+                        # print("calculate_cost_and_propagate--prop",
+                        #     self.depth_propagate_field[prop_idx], 
+                        #     self.normal_propagate_field[prop_idx]
+                        # )
 
                         self.get_ref_patch(
                             i, 
