@@ -39,14 +39,14 @@ class patch_matching():
         tao_gradient: float
     ) -> None:
 
-        assert (patch_size+1)%2 == 0, "patch size has to be an odd number"
+        assert (patch_size+1) % 2 == 0, "patch size has to be an odd number"
         assert num_neighbors >= 2, "number of neighbors should >= 2"
 
         self.likelihood_decay: float = likelihood_decay
         self.balance_weight: float = balance_weight
         self.tao_color: float = tao_color
         self.tao_gradient: float = tao_gradient
-    
+
         self.iterations: int = num_iters               # num of estimation iterations
         self.patch_size: int = patch_size              # size of each patch
         self.min_depth: int = min_depth                # min supported depth
@@ -61,26 +61,26 @@ class patch_matching():
         self.images: ti.field                          # input images
         self.depth_maps: ti.field                      # estimated depth maps
         self.normal_maps: ti.field                     # estimated normal maps
-        self.cost_volumes: ti.field                    # computed cost maps 
+        self.cost_volumes: ti.field                    # computed cost maps
         self.src_image_idx: int                        # the idx of the src image
-        self.intrinsics: ti.Matrix.field 
+        self.intrinsics: ti.Matrix.field
         self.extrinsics: ti.Matrix.field
 
         # Resolution of each image
         self.resolutions: ti.Vector.field
 
-        # Patch for cost calculation. They prevent the solution from 
+        # Patch for cost calculation. They prevent the solution from
         # parallel processing on GPU. Can be set to Matrix if the patch
         # size is not very large and thus can be in parallel.
         self.src_patch: ti.field
         self.ref_patch: ti.field
-        
-        # Fields for propagation. Sharing these data prevent parallel 
+
+        # Fields for propagation. Sharing these data prevent parallel
         # computing on GPU.
         self.normal_propagate_field: ti.Vector.field
         self.depth_propagate_field: ti.field
-        
-        # Debug purpose. Sharing these data prevent parallel 
+
+        # Debug purpose. Sharing these data prevent parallel
         # computing on GPU.
         self.patch_cost_debug = ti.field(dtype=ti.f32, shape=(
             self.patch_size, self.patch_size))
@@ -104,8 +104,8 @@ class patch_matching():
         # [cam_idx, 3, 3]
         self.intrinsics = ti.Matrix.field(
             INTRINSIC_DIMENSION,
-            INTRINSIC_DIMENSION, 
-            dtype=ti.f32, 
+            INTRINSIC_DIMENSION,
+            dtype=ti.f32,
             shape=len(intrinsics)
         )
         self.intrinsics.from_numpy(np.asarray(intrinsics, dtype='f'))
@@ -114,8 +114,8 @@ class patch_matching():
         # [src_cam_idx, dst_cam_idx, 3, 4]
         self.extrinsics = ti.Matrix.field(
             EXTRINSIC_DIMENSION-1,
-            EXTRINSIC_DIMENSION, 
-            dtype=ti.f32, 
+            EXTRINSIC_DIMENSION,
+            dtype=ti.f32,
             shape=(len(images), len(images))
         )
         extrinsics_np = np.zeros(
@@ -132,11 +132,11 @@ class patch_matching():
         )
         self.resolutions.from_numpy(
             np.array([img.shape for img in images]).astype('i'))
-        
+
         # Image scalar field, same as numpy array shape
         # [img_idx, num_row, num_col, 3]
         self.images = ti.field(
-            dtype=ti.f32, 
+            dtype=ti.f32,
             shape=np.asarray(images).shape
         )
         self.images.from_numpy(np.asarray(images).astype('f'))
@@ -144,14 +144,14 @@ class patch_matching():
         # Disparity maps with uniform distribution
         # [img_idx, num_row, num_col]
         self.depth_maps = ti.field(
-            dtype=ti.f32, 
+            dtype=ti.f32,
             shape=np.asarray(images).shape[:-1]
         )
         if gt_depth == None:
             random_depth = np.random.uniform(
-                low=self.min_depth, 
-                high=self.max_depth, 
-                size=np.asarray(images).shape[:-1], 
+                low=self.min_depth,
+                high=self.max_depth,
+                size=np.asarray(images).shape[:-1],
             )
         else:
             random_depth = np.asarray(gt_depth)
@@ -162,14 +162,15 @@ class patch_matching():
         self.normal_maps = ti.field(
             dtype=ti.f32, shape=np.asarray(images).shape)
         # random_normal = np.random.uniform(
-        #     low=-1, 
-        #     high=1, 
+        #     low=-1,
+        #     high=1,
         #     size=np.asarray(images).shape
         # )
         random_normal = np.zeros_like(np.asarray(images))
-        random_normal[:,:,:,2] = -1
+        random_normal[:, :, :, 2] = -1
         for i in range(random_normal.shape[0]):
-            random_normal[i] = random_normal[i]/np.linalg.norm(random_normal[i],axis=2)[:,:,None]
+            random_normal[i] = random_normal[i] / \
+                np.linalg.norm(random_normal[i], axis=2)[:, :, None]
         self.normal_maps.from_numpy(random_normal.astype('f'))
 
         # Cost maps with INFINIT values
@@ -202,7 +203,7 @@ class patch_matching():
             n=THREE_DIMENSION,
             dtype=ti.f32,
             shape=(
-                1 + self.num_neighbors//2*2 + self.num_refinement, 
+                1 + self.num_neighbors//2*2 + self.num_refinement,
                 self.resolutions[self.src_image_idx].x
             )
         )
@@ -222,8 +223,8 @@ class patch_matching():
 
         for i in range(1499, 1500):
             for j in range(980, 981):
-        # for i in range(self.resolutions[self.src_image_idx].x):
-        #     for j in range(self.resolutions[self.src_image_idx].y):
+                # for i in range(self.resolutions[self.src_image_idx].x):
+                #     for j in range(self.resolutions[self.src_image_idx].y):
                 cache_index = i
 
                 self.get_src_patch(i, j)
@@ -231,22 +232,22 @@ class patch_matching():
                 # Get all candidates for propagation
                 self.propagate_normal(i, j, iteration, cache_index)
                 self.propagate_depth(i, j, iteration, cache_index)
-                
+
                 for prop_idx in range(self.normal_propagate_field.shape[0]):
 
                     cost_all_ref_views = 0.0
                     for ref_idx in range(self.images.shape[0]):
                         if ref_idx == self.src_image_idx:
                             continue
-                        
+
                         # print("calculate_cost_and_propagate--prop",
-                        #     self.depth_propagate_field[prop_idx, cache_index], 
+                        #     self.depth_propagate_field[prop_idx, cache_index],
                         #     self.normal_propagate_field[prop_idx, cache_index]
                         # )
 
                         self.get_ref_patch(
-                            i, 
-                            j, 
+                            i,
+                            j,
                             self.depth_propagate_field[prop_idx, cache_index],
                             self.normal_propagate_field[prop_idx, cache_index],
                             self.intrinsics[self.src_image_idx],
@@ -261,21 +262,24 @@ class patch_matching():
                         self.cost_volumes[i, j] = cost_all_ref_views
 
                         self.depth_maps[self.src_image_idx, i, j] = \
-                                self.depth_propagate_field[prop_idx, cache_index]
+                            self.depth_propagate_field[prop_idx, cache_index]
 
                         self.normal_maps[self.src_image_idx, i, j, 0] = \
-                            self.normal_propagate_field[prop_idx, cache_index].x
+                            self.normal_propagate_field[prop_idx,
+                                                        cache_index].x
                         self.normal_maps[self.src_image_idx, i, j, 1] = \
-                            self.normal_propagate_field[prop_idx, cache_index].y
+                            self.normal_propagate_field[prop_idx,
+                                                        cache_index].y
                         self.normal_maps[self.src_image_idx, i, j, 2] = \
-                            self.normal_propagate_field[prop_idx, cache_index].z
+                            self.normal_propagate_field[prop_idx,
+                                                        cache_index].z
 
     @ti.func
     def propagate_depth(
-        self, 
-        row: int, 
-        col: int, 
-        iters: int, 
+        self,
+        row: int,
+        col: int,
+        iters: int,
         patch_cache_index: int
     ) -> None:
 
@@ -286,26 +290,26 @@ class patch_matching():
             self.depth_propagate_field[index, patch_cache_index] = \
                 self.depth_maps[self.src_image_idx, row, col+i]
             index += 1
-            
+
         # Random refinement
         for i in range(self.num_refinement):
             self.depth_propagate_field[index, patch_cache_index] = (
-                self.depth_propagate_field[self.num_neighbors//2, patch_cache_index] + 
+                self.depth_propagate_field[self.num_neighbors//2, patch_cache_index] +
                 (ti.random(float) - 0.5)*self.delta_depth*ti.pow(2, -iters)
             )
             index += 1
 
     @ti.func
     def propagate_normal(
-        self, 
-        row: int, 
-        col: int, 
-        iters: int, 
+        self,
+        row: int,
+        col: int,
+        iters: int,
         patch_cache_index: int
     ) -> None:
-        
+
         index = 0
-        
+
         # Spacial propagation
         for i in range(-self.num_neighbors//2, self.num_neighbors//2+1):
             self.normal_propagate_field[index, patch_cache_index] = ti.Vector(
@@ -314,7 +318,7 @@ class patch_matching():
                  self.normal_maps[self.src_image_idx, row, col+i, 2]]
             )
             index += 1
-            
+
         # Random refinement
         for i in range(self.num_refinement):
             self.normal_propagate_field[index, patch_cache_index] = ti.math.normalize(
@@ -326,14 +330,14 @@ class patch_matching():
                  )*self.delta_norm*ti.pow(2, -iters)
             )
             index += 1
-    
+
     @ti.func
     def get_src_patch(
-        self, 
-        center_row: int, 
+        self,
+        center_row: int,
         center_col: int
     ) -> None:
-        
+
         patch_cache_index = center_row
 
         for i in range(self.src_patch.shape[0]):
@@ -357,7 +361,7 @@ class patch_matching():
     @ti.func
     def get_ref_patch(
         self,
-        center_row_src: int, 
+        center_row_src: int,
         center_col_src: int,
         center_depth: float,
         center_normal: ti.template(),        # ti.types.ndarray() is for ti.fields data
@@ -365,10 +369,10 @@ class patch_matching():
         ref_image_idx: int
     ) -> None:
         # Calculate the plane constant
-        fx = src_cam_intrinsic[0,0]
-        fy = src_cam_intrinsic[1,1]
-        cx = src_cam_intrinsic[0,2]
-        cy = src_cam_intrinsic[1,2]
+        fx = src_cam_intrinsic[0, 0]
+        fy = src_cam_intrinsic[1, 1]
+        cx = src_cam_intrinsic[0, 2]
+        cy = src_cam_intrinsic[1, 2]
         Px = (center_col_src - cx)*center_depth/fx
         Py = (center_row_src - cy)*center_depth/fy
         P = ti.Vector([Px, Py, center_depth])
@@ -385,25 +389,26 @@ class patch_matching():
 
                 if (((img_row_src >= 0) and
                      (img_row_src < self.resolutions[self.src_image_idx][0])
-                    ) and
+                     ) and
                     ((img_col_src >= 0) and
-                     (img_col_src < self.resolutions[self.src_image_idx][1])
-                    )
-                ):
+                             (img_col_src <
+                              self.resolutions[self.src_image_idx][1])
+                             )
+                    ):
                     ref_pixel = self.project_pixel(
                         img_row_src, img_col_src, cx, cy, fx, fy, center_normal, C, ref_image_idx)
-                    
+
                     # print("get_ref_patch", img_row_src, img_col_src, ref_pixel)
 
                     if (((ref_pixel[1] >= 0) and
-                         (ref_pixel[1] <
+                             (ref_pixel[1] <
                               self.resolutions[self.src_image_idx][0])
-                         ) and
-                            ((ref_pixel[0] >= 0) and
-                             (ref_pixel[0] <
-                              self.resolutions[self.src_image_idx][1])
-                             )
-                        ):
+                             ) and
+                                ((ref_pixel[0] >= 0) and
+                                 (ref_pixel[0] <
+                                  self.resolutions[self.src_image_idx][1])
+                                 )
+                            ):
                         ref_color = self.interpolate_color(
                             ref_pixel, ref_image_idx)
 
@@ -426,7 +431,7 @@ class patch_matching():
     ) -> ti.Vector:
         Qx_bar = (q_col - cx)/fx
         Qy_bar = (q_row - cy)/fy
-        
+
         Qz = plane_constant / \
             (center_normal.z + center_normal.x*Qx_bar + center_normal.y*Qy_bar)
         Qx = Qx_bar*Qz
@@ -439,11 +444,11 @@ class patch_matching():
 
         q_ref_row = 0.0
         q_ref_col = 0.0
-        if (((q_ref.x >= 0) and 
-             (q_ref.x < self.resolutions[self.src_image_idx][1])) and 
-            ((q_ref.y >= 0) and 
-             (q_ref.y < self.resolutions[self.src_image_idx][0]))
-            ):
+        if (((q_ref.x >= 0) and
+                 (q_ref.x < self.resolutions[self.src_image_idx][1])) and
+                ((q_ref.y >= 0) and
+                 (q_ref.y < self.resolutions[self.src_image_idx][0]))
+                ):
             q_ref_row = q_ref.y
             q_ref_col = q_ref.x
 
@@ -457,7 +462,7 @@ class patch_matching():
         ref_pixel: ti.template(),
         ref_image_idx: int
     ) -> ti.Vector:
-        
+
         row1 = int(ref_pixel[0] - 0.5)
         row2 = int(ref_pixel[0] + 0.5)
         col1 = int(ref_pixel[1] - 0.5)
@@ -496,11 +501,11 @@ class patch_matching():
 
         cost_sum = 0.0
         src_center_clr = self.get_patch_pixel(
-            self.src_patch, 
+            self.src_patch,
             patch_cache_index,
-            self.patch_size//2, 
-            self.patch_size, 
-            self.patch_size//2, 
+            self.patch_size//2,
+            self.patch_size,
+            self.patch_size//2,
             self.patch_size
         )
 
@@ -550,31 +555,51 @@ class patch_matching():
 
     @ti.func
     def compute_gradiant_cost(self, i: int, j: int, patch_cache_index: int) -> float:
-        src_tl = self.get_patch_pixel(self.src_patch, patch_cache_index, i-1, self.patch_size, j-1, self.patch_size)
-        src_tp = self.get_patch_pixel(self.src_patch, patch_cache_index, i-1, self.patch_size, j, self.patch_size)
-        src_tr = self.get_patch_pixel(self.src_patch, patch_cache_index, i+1, self.patch_size, j-1, self.patch_size)
-        src_bl = self.get_patch_pixel(self.src_patch, patch_cache_index, i+1, self.patch_size, j-1, self.patch_size)
-        src_bt = self.get_patch_pixel(self.src_patch, patch_cache_index, i+1, self.patch_size, j, self.patch_size)
-        src_br = self.get_patch_pixel(self.src_patch, patch_cache_index, i+1, self.patch_size, j+1, self.patch_size)
-        src_lf = self.get_patch_pixel(self.src_patch, patch_cache_index, i, self.patch_size, j-1, self.patch_size)
-        src_rg = self.get_patch_pixel(self.src_patch, patch_cache_index, i, self.patch_size, j+1, self.patch_size)
+        src_tl = self.get_patch_pixel(
+            self.src_patch, patch_cache_index, i-1, self.patch_size, j-1, self.patch_size)
+        src_tp = self.get_patch_pixel(
+            self.src_patch, patch_cache_index, i-1, self.patch_size, j, self.patch_size)
+        src_tr = self.get_patch_pixel(
+            self.src_patch, patch_cache_index, i+1, self.patch_size, j-1, self.patch_size)
+        src_bl = self.get_patch_pixel(
+            self.src_patch, patch_cache_index, i+1, self.patch_size, j-1, self.patch_size)
+        src_bt = self.get_patch_pixel(
+            self.src_patch, patch_cache_index, i+1, self.patch_size, j, self.patch_size)
+        src_br = self.get_patch_pixel(
+            self.src_patch, patch_cache_index, i+1, self.patch_size, j+1, self.patch_size)
+        src_lf = self.get_patch_pixel(
+            self.src_patch, patch_cache_index, i, self.patch_size, j-1, self.patch_size)
+        src_rg = self.get_patch_pixel(
+            self.src_patch, patch_cache_index, i, self.patch_size, j+1, self.patch_size)
 
-        ref_tl = self.get_patch_pixel(self.ref_patch, patch_cache_index, i-1, self.patch_size, j-1, self.patch_size)
-        ref_tp = self.get_patch_pixel(self.ref_patch, patch_cache_index, i-1, self.patch_size, j, self.patch_size)
-        ref_tr = self.get_patch_pixel(self.ref_patch, patch_cache_index, i-1, self.patch_size, j+1, self.patch_size)
-        ref_bl = self.get_patch_pixel(self.ref_patch, patch_cache_index, i+1, self.patch_size, j-1, self.patch_size)
-        ref_bt = self.get_patch_pixel(self.ref_patch, patch_cache_index, i+1, self.patch_size, j, self.patch_size)
-        ref_br = self.get_patch_pixel(self.ref_patch, patch_cache_index, i+1, self.patch_size, j+1, self.patch_size)
-        ref_lf = self.get_patch_pixel(self.ref_patch, patch_cache_index, i, self.patch_size, j-1, self.patch_size)
-        ref_rg = self.get_patch_pixel(self.ref_patch, patch_cache_index, i, self.patch_size, j+1, self.patch_size)
+        ref_tl = self.get_patch_pixel(
+            self.ref_patch, patch_cache_index, i-1, self.patch_size, j-1, self.patch_size)
+        ref_tp = self.get_patch_pixel(
+            self.ref_patch, patch_cache_index, i-1, self.patch_size, j, self.patch_size)
+        ref_tr = self.get_patch_pixel(
+            self.ref_patch, patch_cache_index, i-1, self.patch_size, j+1, self.patch_size)
+        ref_bl = self.get_patch_pixel(
+            self.ref_patch, patch_cache_index, i+1, self.patch_size, j-1, self.patch_size)
+        ref_bt = self.get_patch_pixel(
+            self.ref_patch, patch_cache_index, i+1, self.patch_size, j, self.patch_size)
+        ref_br = self.get_patch_pixel(
+            self.ref_patch, patch_cache_index, i+1, self.patch_size, j+1, self.patch_size)
+        ref_lf = self.get_patch_pixel(
+            self.ref_patch, patch_cache_index, i, self.patch_size, j-1, self.patch_size)
+        ref_rg = self.get_patch_pixel(
+            self.ref_patch, patch_cache_index, i, self.patch_size, j+1, self.patch_size)
 
         # Get x-gradient
-        src_grad_x = (src_tr - src_tl) + 2*(src_rg - src_lf) + (src_br - src_bl)
-        ref_grad_x = (ref_tr - ref_tl) + 2*(ref_rg - ref_lf) + (ref_br - ref_bl)
+        src_grad_x = (src_tr - src_tl) + 2 * \
+            (src_rg - src_lf) + (src_br - src_bl)
+        ref_grad_x = (ref_tr - ref_tl) + 2 * \
+            (ref_rg - ref_lf) + (ref_br - ref_bl)
 
         # Get y-gradient
-        src_grad_y = (src_tl - src_bl) + 2*(src_tp - src_bt) + (src_tr - src_br)
-        ref_grad_y = (ref_tl - ref_bl) + 2*(ref_tp - ref_bt) + (ref_tr - ref_br)
+        src_grad_y = (src_tl - src_bl) + 2 * \
+            (src_tp - src_bt) + (src_tr - src_br)
+        ref_grad_y = (ref_tl - ref_bl) + 2 * \
+            (ref_tp - ref_bt) + (ref_tr - ref_br)
 
         # Get square root of sum of squares
         src_grad = ti.sqrt(src_grad_x*src_grad_x + src_grad_y*src_grad_y)
@@ -589,14 +614,14 @@ class patch_matching():
 
     @ti.func
     def get_patch_pixel(
-        self, 
+        self,
         image: ti.template(),
         patch_cache_index: int,
-        i: int, max_i: int, 
+        i: int, max_i: int,
         j: int, max_j: int
     ) -> ti.Vector:
 
-        pixel = ti.Vector([0.0, 0.0, 0.0])        
+        pixel = ti.Vector([0.0, 0.0, 0.0])
         if (((i >= 0) and (i < max_i)) and ((j >= 0) and (j < max_j))):
             pixel = ti.Vector([image[i, j, 0, patch_cache_index],
                                image[i, j, 1, patch_cache_index],
@@ -604,13 +629,13 @@ class patch_matching():
         return pixel
 
     def run(
-            self,
-            images: list[np.ndarray],
-            intrinsics: list[np.ndarray],
-            extrinsics: dict,
-            source_image_idx: int,
-            gt_depth: list[np.ndarray] = None
-        ) -> None:     
+        self,
+        images: list[np.ndarray],
+        intrinsics: list[np.ndarray],
+        extrinsics: dict,
+        source_image_idx: int,
+        gt_depth: list[np.ndarray] = None
+    ) -> None:
 
         self.init_algorithm(
             images,
