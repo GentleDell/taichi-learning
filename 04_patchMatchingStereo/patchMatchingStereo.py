@@ -93,7 +93,6 @@ class patch_matching():
         intrinsics: list[np.ndarray],
         extrinsics: dict,
         source_image_idx: int,
-        gt_depth: list[np.ndarray] = None
     ) -> None:
 
         ti.static_assert(len(images) == len(intrinsics), "Dimension error!")
@@ -147,27 +146,22 @@ class patch_matching():
             dtype=ti.f32,
             shape=np.asarray(images).shape[:-1]
         )
-        if gt_depth == None:
-            random_depth = np.random.uniform(
-                low=self.min_depth,
-                high=self.max_depth,
-                size=np.asarray(images).shape[:-1],
-            )
-        else:
-            random_depth = np.asarray(gt_depth)
+        random_depth = np.random.uniform(
+            low=self.min_depth,
+            high=self.max_depth,
+            size=np.asarray(images).shape[:-1]
+        )
         self.depth_maps.from_numpy(random_depth.astype('f'))
 
         # Normal maps with uniform distribution
         # [img_idx, num_row, num_col, 3]
         self.normal_maps = ti.field(
             dtype=ti.f32, shape=np.asarray(images).shape)
-        # random_normal = np.random.uniform(
-        #     low=-1,
-        #     high=1,
-        #     size=np.asarray(images).shape
-        # )
-        random_normal = np.zeros_like(np.asarray(images))
-        random_normal[:, :, :, 2] = -1
+        random_normal = np.random.uniform(
+            low=-1,
+            high=1,
+            size=np.asarray(images).shape
+        )
         for i in range(random_normal.shape[0]):
             random_normal[i] = random_normal[i] / \
                 np.linalg.norm(random_normal[i], axis=2)[:, :, None]
@@ -634,7 +628,7 @@ class patch_matching():
         intrinsics: list[np.ndarray],
         extrinsics: dict,
         source_image_idx: int,
-        gt_depth: list[np.ndarray] = None
+        gui_enable: bool = False
     ) -> None:
 
         self.init_algorithm(
@@ -642,13 +636,13 @@ class patch_matching():
             intrinsics,
             extrinsics,
             source_image_idx,
-            gt_depth
         )
 
         for i in range(self.iterations):
+            if gui_enable:
+                self.visualize_fields(i)
+
             self.calculate_cost_and_propagate(i)
 
-        pass
-
-    def reset():
+    def visualize_fields(self, iteration_num: int):
         pass

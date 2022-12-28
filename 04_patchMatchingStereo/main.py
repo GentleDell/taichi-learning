@@ -121,26 +121,24 @@ def main():
         images=dataset.images,
         intrinsics=dataset.camera_intrinsics,
         extrinsics=dataset.camera_extrinsics,
-        source_image_idx=SOURCE_IMAGE_IDX,
-        gt_depth=dataset.gt_depth
+        source_image_idx=SOURCE_IMAGE_IDX
     )
     
+    # Copy data to cpu numpy for plt.imshow is slow
     # fig = plt.figure()
     # ax1 = fig.add_subplot(221)
-    # ax1.imshow(pm_solver.src_patch.to_numpy())
+    # ax1.imshow(pm_solver.depth_maps.to_numpy()[SOURCE_IMAGE_IDX])
     # ax1.title.set_text('src_patch')
     # ax2 = fig.add_subplot(222)
-    # ax2.imshow(pm_solver.ref_patch.to_numpy())
+    # ax2.imshow(pm_solver.normal_maps.to_numpy()[SOURCE_IMAGE_IDX])
     # ax2.title.set_text('ref_patch')
     # ax3 = fig.add_subplot(223)
-    # ax3.imshow(pm_solver.patch_cost_debug.to_numpy())
+    # ax3.imshow(pm_solver.cost_volumes.to_numpy())
     # ax3.title.set_text('patch_cost_debug')
     # ax4 = fig.add_subplot(224)
-    # ax4.imshow(pm_solver.patch_grad_debug.to_numpy())
+    # ax4.imshow(pm_solver.images.to_numpy()[SOURCE_IMAGE_IDX])
     # ax4.title.set_text('patch_grad_debug')
     # plt.show()
-    #
-    # plt.imshow(cost, vmin = cost.min(), vmax=cost.max())
 
     pass
 
