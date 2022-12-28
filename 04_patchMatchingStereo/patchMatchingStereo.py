@@ -72,10 +72,8 @@ class patch_matching():
         # Patch for cost calculation. They prevent the solution from 
         # parallel processing on GPU. Can be set to Matrix if the patch
         # size is not very large and thus can be in parallel.
-        self.src_patch = ti.field(dtype=ti.f32, shape=(
-            self.patch_size, self.patch_size, RGB_IMAGE_DEPTH))
-        self.ref_patch = ti.field(dtype=ti.f32, shape=(
-            self.patch_size, self.patch_size, RGB_IMAGE_DEPTH))
+        self.src_patch: ti.field
+        self.ref_patch: ti.field
         
         # Fields for propagation. Sharing these data prevent parallel 
         # computing on GPU.
@@ -136,11 +134,11 @@ class patch_matching():
         # Resolution vector, [img_idx, 3]
         self.resolutions = ti.Vector.field(
             n=RGB_IMAGE_DEPTH,
-            dtype=ti.f32, 
+            dtype=ti.i32,
             shape=len(intrinsics)
         )
         self.resolutions.from_numpy(
-            np.array([img.shape for img in images]).astype('f'))
+            np.array([img.shape for img in images]).astype('i'))
         
         # Image scalar field, same as numpy array shape
         # [img_idx, num_row, num_col, 3]
@@ -188,6 +186,22 @@ class patch_matching():
         self.cost_volumes.from_numpy(
             np.ones(images[0].shape[:-1]).astype('f')*INFINIT)
 
+        # Patch feild
+        # The last dimension is set to the number of rows to
+        # allow parallelization
+        self.src_patch = ti.field(dtype=ti.f32, shape=(
+            self.patch_size,
+            self.patch_size,
+            RGB_IMAGE_DEPTH,
+            self.resolutions[self.src_image_idx].x)
+        )
+        self.ref_patch = ti.field(dtype=ti.f32, shape=(
+            self.patch_size,
+            self.patch_size,
+            RGB_IMAGE_DEPTH,
+            self.resolutions[self.src_image_idx].x)
+        )
+
     @ti.kernel
     def calculate_cost_and_propagate(self, iteration: int):
         # As the initial implementation, only estimate the depth of the
@@ -225,7 +239,7 @@ class patch_matching():
                             ref_idx
                         )
 
-                        cost_all_ref_views += self.compute_cost()
+                        cost_all_ref_views += self.compute_cost(i)
 
                     # If this is a better guess, update the cost, depth
                     # and the normal of the pixel.
@@ -291,23 +305,25 @@ class patch_matching():
         center_col: int
     ) -> None:
         
+        patch_cache_index = center_row
+
         for i in range(self.src_patch.shape[0]):
             for j in range(self.src_patch.shape[1]):
                 img_row = center_row + i - self.patch_size//2
                 img_col = center_col + j - self.patch_size//2
 
-                self.src_patch[i, j, 0] = 0.0
-                self.src_patch[i, j, 1] = 0.0
-                self.src_patch[i, j, 2] = 0.0
+                self.src_patch[i, j, 0, patch_cache_index] = 0.0
+                self.src_patch[i, j, 1, patch_cache_index] = 0.0
+                self.src_patch[i, j, 2, patch_cache_index] = 0.0
 
                 if ((img_row >= 0) and (img_row < self.resolutions[self.src_image_idx].x)) and \
                         ((img_col >= 0) and (img_col <= self.resolutions[self.src_image_idx].y)):
-                    self.src_patch[i, j, 0] = self.images[self.src_image_idx,
-                                                          img_row, img_col, 0]
-                    self.src_patch[i, j, 1] = self.images[self.src_image_idx,
-                                                          img_row, img_col, 1]
-                    self.src_patch[i, j, 2] = self.images[self.src_image_idx,
-                                                          img_row, img_col, 2]
+                    self.src_patch[i, j, 0, patch_cache_index] = self.images[self.src_image_idx,
+                                                                             img_row, img_col, 0]
+                    self.src_patch[i, j, 1, patch_cache_index] = self.images[self.src_image_idx,
+                                                                             img_row, img_col, 1]
+                    self.src_patch[i, j, 2, patch_cache_index] = self.images[self.src_image_idx,
+                                                                             img_row, img_col, 2]
 
     @ti.func
     def get_ref_patch(
@@ -334,9 +350,9 @@ class patch_matching():
                 img_row_src = center_row_src + i - self.patch_size//2
                 img_col_src = center_col_src + j - self.patch_size//2
 
-                self.ref_patch[i, j, 0] = 0.0
-                self.ref_patch[i, j, 1] = 0.0
-                self.ref_patch[i, j, 2] = 0.0
+                self.ref_patch[i, j, 0, center_row_src] = 0.0
+                self.ref_patch[i, j, 1, center_row_src] = 0.0
+                self.ref_patch[i, j, 2, center_row_src] = 0.0
 
                 if (((img_row_src >= 0) and
                      (img_row_src < self.resolutions[self.src_image_idx][0])
@@ -362,9 +378,9 @@ class patch_matching():
                         ref_color = self.interpolate_color(
                             ref_pixel, ref_image_idx)
 
-                        self.ref_patch[i, j, 0] = ref_color.x
-                        self.ref_patch[i, j, 1] = ref_color.y
-                        self.ref_patch[i, j, 2] = ref_color.z
+                        self.ref_patch[i, j, 0, center_row_src] = ref_color.x
+                        self.ref_patch[i, j, 1, center_row_src] = ref_color.y
+                        self.ref_patch[i, j, 2, center_row_src] = ref_color.z
 
     @ti.func
     def project_pixel(
@@ -447,13 +463,12 @@ class patch_matching():
         return ref_color
 
     @ti.func
-    def compute_cost(self) -> float:
-
-        ti.static_assert(self.src_patch.shape == self.ref_patch.shape)
+    def compute_cost(self, patch_cache_index: int) -> float:
 
         cost_sum = 0.0
-        src_center_clr = self.get_pixel(
+        src_center_clr = self.get_patch_pixel(
             self.src_patch, 
+            patch_cache_index,
             self.patch_size//2, 
             self.patch_size, 
             self.patch_size//2, 
@@ -464,10 +479,10 @@ class patch_matching():
 
         for i in range(self.patch_size):
             for j in range(self.patch_size):
-                src_pixel_clr = self.get_pixel(
-                    self.src_patch, i, self.patch_size, j, self.patch_size)
-                ref_pixel_clr = self.get_pixel(
-                    self.ref_patch, i, self.patch_size, j, self.patch_size)
+                src_pixel_clr = self.get_patch_pixel(
+                    self.src_patch, patch_cache_index, i, self.patch_size, j, self.patch_size)
+                ref_pixel_clr = self.get_patch_pixel(
+                    self.ref_patch, patch_cache_index, i, self.patch_size, j, self.patch_size)
 
                 # print("compute_cost--src_clr, ref_clr:",
                 #       src_pixel_clr, ref_pixel_clr)
@@ -478,7 +493,7 @@ class patch_matching():
                 clr_cost = self.compute_color_cost(
                     src_pixel_clr, ref_pixel_clr)
 
-                grd_cost = self.compute_gradiant_cost(i, j)
+                grd_cost = self.compute_gradiant_cost(i, j, patch_cache_index)
 
                 cost = likelihood * \
                     ((1 - self.balance_weight)*clr_cost +
@@ -505,24 +520,24 @@ class patch_matching():
         return color_dissimilarity
 
     @ti.func
-    def compute_gradiant_cost(self, i: int, j: int) -> float:
-        src_tl = self.get_pixel(self.src_patch, i-1, self.patch_size, j-1, self.patch_size)
-        src_tp = self.get_pixel(self.src_patch, i-1, self.patch_size, j, self.patch_size)
-        src_tr = self.get_pixel(self.src_patch, i+1, self.patch_size, j-1, self.patch_size)
-        src_bl = self.get_pixel(self.src_patch, i+1, self.patch_size, j-1, self.patch_size)
-        src_bt = self.get_pixel(self.src_patch, i+1, self.patch_size, j, self.patch_size)
-        src_br = self.get_pixel(self.src_patch, i+1, self.patch_size, j+1, self.patch_size)
-        src_lf = self.get_pixel(self.src_patch, i, self.patch_size, j-1, self.patch_size)
-        src_rg = self.get_pixel(self.src_patch, i, self.patch_size, j+1, self.patch_size)
+    def compute_gradiant_cost(self, i: int, j: int, patch_cache_index: int) -> float:
+        src_tl = self.get_patch_pixel(self.src_patch, patch_cache_index, i-1, self.patch_size, j-1, self.patch_size)
+        src_tp = self.get_patch_pixel(self.src_patch, patch_cache_index, i-1, self.patch_size, j, self.patch_size)
+        src_tr = self.get_patch_pixel(self.src_patch, patch_cache_index, i+1, self.patch_size, j-1, self.patch_size)
+        src_bl = self.get_patch_pixel(self.src_patch, patch_cache_index, i+1, self.patch_size, j-1, self.patch_size)
+        src_bt = self.get_patch_pixel(self.src_patch, patch_cache_index, i+1, self.patch_size, j, self.patch_size)
+        src_br = self.get_patch_pixel(self.src_patch, patch_cache_index, i+1, self.patch_size, j+1, self.patch_size)
+        src_lf = self.get_patch_pixel(self.src_patch, patch_cache_index, i, self.patch_size, j-1, self.patch_size)
+        src_rg = self.get_patch_pixel(self.src_patch, patch_cache_index, i, self.patch_size, j+1, self.patch_size)
 
-        ref_tl = self.get_pixel(self.ref_patch, i-1, self.patch_size, j-1, self.patch_size)
-        ref_tp = self.get_pixel(self.ref_patch, i-1, self.patch_size, j, self.patch_size)
-        ref_tr = self.get_pixel(self.ref_patch, i-1, self.patch_size, j+1, self.patch_size)
-        ref_bl = self.get_pixel(self.ref_patch, i+1, self.patch_size, j-1, self.patch_size)
-        ref_bt = self.get_pixel(self.ref_patch, i+1, self.patch_size, j, self.patch_size)
-        ref_br = self.get_pixel(self.ref_patch, i+1, self.patch_size, j+1, self.patch_size)
-        ref_lf = self.get_pixel(self.ref_patch, i, self.patch_size, j-1, self.patch_size)
-        ref_rg = self.get_pixel(self.ref_patch, i, self.patch_size, j+1, self.patch_size)
+        ref_tl = self.get_patch_pixel(self.ref_patch, patch_cache_index, i-1, self.patch_size, j-1, self.patch_size)
+        ref_tp = self.get_patch_pixel(self.ref_patch, patch_cache_index, i-1, self.patch_size, j, self.patch_size)
+        ref_tr = self.get_patch_pixel(self.ref_patch, patch_cache_index, i-1, self.patch_size, j+1, self.patch_size)
+        ref_bl = self.get_patch_pixel(self.ref_patch, patch_cache_index, i+1, self.patch_size, j-1, self.patch_size)
+        ref_bt = self.get_patch_pixel(self.ref_patch, patch_cache_index, i+1, self.patch_size, j, self.patch_size)
+        ref_br = self.get_patch_pixel(self.ref_patch, patch_cache_index, i+1, self.patch_size, j+1, self.patch_size)
+        ref_lf = self.get_patch_pixel(self.ref_patch, patch_cache_index, i, self.patch_size, j-1, self.patch_size)
+        ref_rg = self.get_patch_pixel(self.ref_patch, patch_cache_index, i, self.patch_size, j+1, self.patch_size)
 
         # Get x-gradient
         src_grad_x = (src_tr - src_tl) + 2*(src_rg - src_lf) + (src_br - src_bl)
@@ -544,18 +559,19 @@ class patch_matching():
         return grad_dissimilarity
 
     @ti.func
-    def get_pixel(
+    def get_patch_pixel(
         self, 
-        image: ti.template(), 
+        image: ti.template(),
+        patch_cache_index: int,
         i: int, max_i: int, 
         j: int, max_j: int
     ) -> ti.Vector:
 
         pixel = ti.Vector([0.0, 0.0, 0.0])        
         if (((i >= 0) and (i < max_i)) and ((j >= 0) and (j < max_j))):
-            pixel = ti.Vector([image[i, j, 0],
-                               image[i, j, 1],
-                               image[i, j, 2]])
+            pixel = ti.Vector([image[i, j, 0, patch_cache_index],
+                               image[i, j, 1, patch_cache_index],
+                               image[i, j, 2, patch_cache_index]])
         return pixel
 
     def run(
