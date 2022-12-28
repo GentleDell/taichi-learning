@@ -281,8 +281,14 @@ class patch_matching():
 
         # Spacial propagation
         for i in range(-self.num_neighbors//2, self.num_neighbors//2+1):
-            self.depth_propagate_field[index, patch_cache_index] = \
-                self.depth_maps[self.src_image_idx, row, col+i]
+            if ((col + i >= 0) and (col + i < self.resolutions[self.src_image_idx].y)):
+                self.depth_propagate_field[index, patch_cache_index] = \
+                    self.depth_maps[self.src_image_idx, row, col+i]
+            else:
+                self.depth_propagate_field[index, patch_cache_index] = (
+                    self.depth_maps[self.src_image_idx, row, col] +
+                    (ti.random(float) - 0.5)*self.delta_depth*ti.pow(2, -iters)
+                )
             index += 1
 
         # Random refinement
@@ -306,11 +312,25 @@ class patch_matching():
 
         # Spacial propagation
         for i in range(-self.num_neighbors//2, self.num_neighbors//2+1):
-            self.normal_propagate_field[index, patch_cache_index] = ti.Vector(
-                [self.normal_maps[self.src_image_idx, row, col+i, 0],
-                 self.normal_maps[self.src_image_idx, row, col+i, 1],
-                 self.normal_maps[self.src_image_idx, row, col+i, 2]]
-            )
+            if ((col + i >= 0) and (col + i < self.resolutions[self.src_image_idx].y)):
+                self.normal_propagate_field[index, patch_cache_index] = ti.Vector(
+                    [self.normal_maps[self.src_image_idx, row, col+i, 0],
+                     self.normal_maps[self.src_image_idx, row, col+i, 1],
+                     self.normal_maps[self.src_image_idx, row, col+i, 2]]
+                )
+            else:
+                self.normal_propagate_field[index, patch_cache_index] = ti.math.normalize(
+                    ti.Vector(
+                        [self.normal_maps[self.src_image_idx, row, col, 0],
+                         self.normal_maps[self.src_image_idx, row, col, 1],
+                         self.normal_maps[self.src_image_idx, row, col, 2]]) +
+                    (ti.Vector([ti.random(float),
+                                ti.random(float),
+                                ti.random(float)]
+                               ) - 0.5
+                     )*self.delta_norm*ti.pow(2, -iters)
+                )
+
             index += 1
 
         # Random refinement
