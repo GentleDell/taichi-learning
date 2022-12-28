@@ -77,15 +77,8 @@ class patch_matching():
         
         # Fields for propagation. Sharing these data prevent parallel 
         # computing on GPU.
-        self.normal_propagate_field = ti.Vector.field(
-            n=THREE_DIMENSION,
-            dtype=ti.f32,
-            shape=1 + self.num_neighbors//2*2 + self.num_refinement
-        )
-        self.depth_propagate_field = ti.field(
-            dtype=ti.f32,
-            shape=1 + self.num_neighbors//2*2 + self.num_refinement
-        )
+        self.normal_propagate_field: ti.Vector.field
+        self.depth_propagate_field: ti.field
         
         # Debug purpose. Sharing these data prevent parallel 
         # computing on GPU.
@@ -202,6 +195,25 @@ class patch_matching():
             self.resolutions[self.src_image_idx].x)
         )
 
+        # Propagation caches
+        # The last dimension is set to the number of rows to
+        # allow parallelization
+        self.normal_propagate_field = ti.Vector.field(
+            n=THREE_DIMENSION,
+            dtype=ti.f32,
+            shape=(
+                1 + self.num_neighbors//2*2 + self.num_refinement, 
+                self.resolutions[self.src_image_idx].x
+            )
+        )
+        self.depth_propagate_field = ti.field(
+            dtype=ti.f32,
+            shape=(
+                1 + self.num_neighbors//2*2 + self.num_refinement,
+                self.resolutions[self.src_image_idx].x
+            )
+        )
+
     @ti.kernel
     def calculate_cost_and_propagate(self, iteration: int):
         # As the initial implementation, only estimate the depth of the
@@ -212,11 +224,13 @@ class patch_matching():
             for j in range(980, 981):
         # for i in range(self.resolutions[self.src_image_idx].x):
         #     for j in range(self.resolutions[self.src_image_idx].y):
+                cache_index = i
+
                 self.get_src_patch(i, j)
 
                 # Get all candidates for propagation
-                self.propagate_normal(i, j, iteration)
-                self.propagate_depth(i, j, iteration)
+                self.propagate_normal(i, j, iteration, cache_index)
+                self.propagate_depth(i, j, iteration, cache_index)
                 
                 for prop_idx in range(self.normal_propagate_field.shape[0]):
 
@@ -226,20 +240,20 @@ class patch_matching():
                             continue
                         
                         # print("calculate_cost_and_propagate--prop",
-                        #     self.depth_propagate_field[prop_idx], 
-                        #     self.normal_propagate_field[prop_idx]
+                        #     self.depth_propagate_field[prop_idx, cache_index], 
+                        #     self.normal_propagate_field[prop_idx, cache_index]
                         # )
 
                         self.get_ref_patch(
                             i, 
                             j, 
-                            self.depth_propagate_field[prop_idx],
-                            self.normal_propagate_field[prop_idx],
+                            self.depth_propagate_field[prop_idx, cache_index],
+                            self.normal_propagate_field[prop_idx, cache_index],
                             self.intrinsics[self.src_image_idx],
                             ref_idx
                         )
 
-                        cost_all_ref_views += self.compute_cost(i)
+                        cost_all_ref_views += self.compute_cost(cache_index)
 
                     # If this is a better guess, update the cost, depth
                     # and the normal of the pixel.
@@ -247,39 +261,54 @@ class patch_matching():
                         self.cost_volumes[i, j] = cost_all_ref_views
 
                         self.depth_maps[self.src_image_idx, i, j] = \
-                                self.depth_propagate_field[prop_idx]
+                                self.depth_propagate_field[prop_idx, cache_index]
 
                         self.normal_maps[self.src_image_idx, i, j, 0] = \
-                            self.normal_propagate_field[prop_idx].x
+                            self.normal_propagate_field[prop_idx, cache_index].x
                         self.normal_maps[self.src_image_idx, i, j, 1] = \
-                            self.normal_propagate_field[prop_idx].y
+                            self.normal_propagate_field[prop_idx, cache_index].y
                         self.normal_maps[self.src_image_idx, i, j, 2] = \
-                            self.normal_propagate_field[prop_idx].z
+                            self.normal_propagate_field[prop_idx, cache_index].z
 
     @ti.func
-    def propagate_depth(self, row: int, col: int, iters: int):
+    def propagate_depth(
+        self, 
+        row: int, 
+        col: int, 
+        iters: int, 
+        patch_cache_index: int
+    ) -> None:
+
         index = 0
 
         # Spacial propagation
         for i in range(-self.num_neighbors//2, self.num_neighbors//2+1):
-            self.depth_propagate_field[index] = \
+            self.depth_propagate_field[index, patch_cache_index] = \
                 self.depth_maps[self.src_image_idx, row, col+i]
             index += 1
             
         # Random refinement
         for i in range(self.num_refinement):
-            self.depth_propagate_field[index] = self.depth_propagate_field[self.num_neighbors//2] + (
-                ti.random(float) - 0.5)*self.delta_depth*ti.pow(2, -iters)
+            self.depth_propagate_field[index, patch_cache_index] = (
+                self.depth_propagate_field[self.num_neighbors//2, patch_cache_index] + 
+                (ti.random(float) - 0.5)*self.delta_depth*ti.pow(2, -iters)
+            )
             index += 1
 
     @ti.func
-    def propagate_normal(self, row: int, col: int, iters: int) -> None:
+    def propagate_normal(
+        self, 
+        row: int, 
+        col: int, 
+        iters: int, 
+        patch_cache_index: int
+    ) -> None:
         
         index = 0
         
         # Spacial propagation
         for i in range(-self.num_neighbors//2, self.num_neighbors//2+1):
-            self.normal_propagate_field[index] = ti.Vector(
+            self.normal_propagate_field[index, patch_cache_index] = ti.Vector(
                 [self.normal_maps[self.src_image_idx, row, col+i, 0],
                  self.normal_maps[self.src_image_idx, row, col+i, 1],
                  self.normal_maps[self.src_image_idx, row, col+i, 2]]
@@ -288,8 +317,8 @@ class patch_matching():
             
         # Random refinement
         for i in range(self.num_refinement):
-            self.normal_propagate_field[index] = ti.math.normalize(
-                self.normal_propagate_field[self.num_neighbors//2] +
+            self.normal_propagate_field[index, patch_cache_index] = ti.math.normalize(
+                self.normal_propagate_field[self.num_neighbors//2, patch_cache_index] +
                 (ti.Vector([ti.random(float),
                             ti.random(float),
                             ti.random(float)]
