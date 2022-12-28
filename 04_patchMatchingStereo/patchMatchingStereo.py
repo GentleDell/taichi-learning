@@ -13,10 +13,10 @@ THREE_DIMENSION = 3
 # currently, many shared data prevents parallel computing
 # if enabel mult-threads, the cost will be significantly impacted.
 ti.init(
-    arch=ti.cpu,
+    arch=ti.cuda,
     # debug=True,
     # kernel_profiler=True,
-    cpu_max_num_threads=1,
+    # cpu_max_num_threads=1,
     # advanced_optimization=False
 )
 
@@ -215,10 +215,10 @@ class patch_matching():
         # first image. This is to prevent race condiction while parallelizing
         # the calculation and propagation.
 
-        for i in range(1499, 1500):
-            for j in range(980, 981):
-                # for i in range(self.resolutions[self.src_image_idx].x):
-                #     for j in range(self.resolutions[self.src_image_idx].y):
+        # for i in range(1499, 1500):
+        #     for j in range(980, 981):
+        for i in range(self.resolutions[self.src_image_idx].x):
+            for j in range(self.resolutions[self.src_image_idx].y):
                 cache_index = i
 
                 self.get_src_patch(i, j)
