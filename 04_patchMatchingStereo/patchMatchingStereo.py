@@ -300,6 +300,15 @@ class patch_matching():
                     self.depth_maps[self.src_image_idx, row, col] +
                     (ti.random(float) - 0.5)*self.delta_depth*ti.pow(2, -iters)
                 )
+
+                if self.depth_propagate_field[index, patch_cache_index] > self.max_depth:
+                    self.depth_propagate_field[index,
+                                               patch_cache_index] = self.max_depth
+
+                if self.depth_propagate_field[index, patch_cache_index] < self.min_depth:
+                    self.depth_propagate_field[index,
+                                               patch_cache_index] = self.min_depth
+
             index += 1
 
         # Random refinement
@@ -308,6 +317,15 @@ class patch_matching():
                 self.depth_propagate_field[self.num_neighbors//2, patch_cache_index] +
                 (ti.random(float) - 0.5)*self.delta_depth*ti.pow(2, -iters)
             )
+
+            if self.depth_propagate_field[index, patch_cache_index] > self.max_depth:
+                self.depth_propagate_field[index,
+                                           patch_cache_index] = self.max_depth
+
+            if self.depth_propagate_field[index, patch_cache_index] < self.min_depth:
+                self.depth_propagate_field[index,
+                                           patch_cache_index] = self.min_depth
+
             index += 1
 
     @ti.func
