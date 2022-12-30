@@ -383,8 +383,8 @@ class patch_matching():
 
         patch_cache_index = center_row
 
-        for i in range(self.src_patch.shape[0]):
-            for j in range(self.src_patch.shape[1]):
+        for i in range(self.patch_size):
+            for j in range(self.patch_size):
                 img_row = center_row + i - self.patch_size//2
                 img_col = center_col + j - self.patch_size//2
 
@@ -433,10 +433,10 @@ class patch_matching():
                 if (((img_row_src >= 0) and
                      (img_row_src < self.resolutions[self.src_image_idx][0])
                      ) and
-                    ((img_col_src >= 0) and
-                             (img_col_src <
-                              self.resolutions[self.src_image_idx][1])
-                             )
+                        ((img_col_src >= 0) and
+                         (img_col_src <
+                          self.resolutions[self.src_image_idx][1])
+                         )
                     ):
                     ref_pixel = self.project_pixel(
                         img_row_src, img_col_src, cx, cy, fx, fy, center_normal, C, ref_image_idx)
@@ -447,10 +447,10 @@ class patch_matching():
                              (ref_pixel[1] <
                               self.resolutions[self.src_image_idx][0])
                              ) and
-                                ((ref_pixel[0] >= 0) and
-                                 (ref_pixel[0] <
-                                  self.resolutions[self.src_image_idx][1])
-                                 )
+                            ((ref_pixel[0] >= 0) and
+                             (ref_pixel[0] <
+                                      self.resolutions[self.src_image_idx][1])
+                             )
                             ):
                         ref_color = self.interpolate_color(
                             ref_pixel, ref_image_idx)
@@ -489,8 +489,8 @@ class patch_matching():
         q_ref_col = 0.0
         if (((q_ref.x >= 0) and
                  (q_ref.x < self.resolutions[self.src_image_idx][1])) and
-                ((q_ref.y >= 0) and
-                 (q_ref.y < self.resolutions[self.src_image_idx][0]))
+                    ((q_ref.y >= 0) and
+                     (q_ref.y < self.resolutions[self.src_image_idx][0]))
                 ):
             q_ref_row = q_ref.y
             q_ref_col = q_ref.x
