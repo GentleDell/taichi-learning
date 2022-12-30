@@ -218,8 +218,19 @@ class patch_matching():
         # for i in range(1499, 1500):
         #     for j in range(980, 981):
         for i in range(self.resolutions[self.src_image_idx].x):
-            for j in range(self.resolutions[self.src_image_idx].y):
-                cache_index = i
+            # Rech row has its own cache for intermediate results
+            cache_index = i
+
+            # At even iterations, traverse from left to right in parallel.
+            # At odd iterations, traverse from right to left in parallel.
+            start_idx = 0
+            end_idx = self.resolutions[self.src_image_idx].y - 1
+
+            if iteration % 2 == 1:
+                start_idx = self.resolutions[self.src_image_idx].y - 1
+                end_idx = 0
+
+            for j in range(start_idx, end_idx):
 
                 self.get_src_patch(i, j)
 
@@ -659,6 +670,8 @@ class patch_matching():
         )
 
         for i in range(self.iterations):
+            print("Iteration {} starts".format(i))
+
             if gui_enable:
                 self.visualize_fields(i)
 
