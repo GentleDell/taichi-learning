@@ -107,7 +107,7 @@ def main():
         patch_size=PATCH_SIZE,
         min_depth=MIN_DEPTH,
         max_depth=MAX_DEPTH,
-        delta_depth=(MAX_DEPTH-MIN_DEPTH)/3,
+        delta_depth=(MAX_DEPTH-MIN_DEPTH)/2,
         delta_norm=DELTA_NORMAL,
         num_neighbors=NUM_SPACIAL_PROPERGATION,
         num_refinement=NUM_REFINEMENT_GUESS,

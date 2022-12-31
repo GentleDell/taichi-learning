@@ -3,6 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 INFINIT = 1e8
+EPSILON = 1e-6
 INTRINSIC_DIMENSION = 3
 EXTRINSIC_DIMENSION = 4
 RGB_IMAGE_DEPTH = 3
@@ -39,6 +40,7 @@ class patch_matching():
         tao_gradient: float
     ) -> None:
 
+        assert num_iters > 0, "number of iterations should be greater than 0"
         assert (patch_size+1) % 2 == 0, "patch size has to be an odd number"
         assert num_neighbors >= 2, "number of neighbors should >= 2"
 
@@ -82,10 +84,10 @@ class patch_matching():
 
         # Debug purpose. Sharing these data prevent parallel
         # computing on GPU.
-        self.patch_cost_debug = ti.field(dtype=ti.f32, shape=(
-            self.patch_size, self.patch_size))
-        self.patch_grad_debug = ti.field(dtype=ti.f32, shape=(
-            self.patch_size, self.patch_size))
+        # self.patch_cost_debug = ti.field(dtype=ti.f32, shape=(
+        #     self.patch_size, self.patch_size))
+        # self.patch_grad_debug = ti.field(dtype=ti.f32, shape=(
+        #     self.patch_size, self.patch_size))
 
     def init_algorithm(
         self,
@@ -215,8 +217,6 @@ class patch_matching():
         # first image. This is to prevent race condiction while parallelizing
         # the calculation and propagation.
 
-        # for i in range(1499, 1500):
-        #     for j in range(980, 981):
         for i in range(self.resolutions[self.src_image_idx].x):
             # Rech row has its own cache for intermediate results
             cache_index = i
@@ -298,7 +298,7 @@ class patch_matching():
             else:
                 self.depth_propagate_field[index, patch_cache_index] = (
                     self.depth_maps[self.src_image_idx, row, col] +
-                    (ti.random(float) - 0.5)*self.delta_depth*ti.pow(2, -iters)
+                    (ti.random(float) - 0.5)*self.delta_depth*ti.pow(2, -iters//2)
                 )
 
                 if self.depth_propagate_field[index, patch_cache_index] > self.max_depth:
@@ -315,7 +315,7 @@ class patch_matching():
         for i in range(self.num_refinement):
             self.depth_propagate_field[index, patch_cache_index] = (
                 self.depth_propagate_field[self.num_neighbors//2, patch_cache_index] +
-                (ti.random(float) - 0.5)*self.delta_depth*ti.pow(2, -iters)
+                (ti.random(float) - 0.5)*self.delta_depth*ti.pow(2, -iters//2)
             )
 
             if self.depth_propagate_field[index, patch_cache_index] > self.max_depth:
@@ -356,8 +356,8 @@ class patch_matching():
                     (ti.Vector([ti.random(float),
                                 ti.random(float),
                                 ti.random(float)]
-                               ) - 0.5
-                     )*self.delta_norm*ti.pow(2, -iters)
+                               )*2 - 1.0
+                     )*self.delta_norm*ti.pow(2, -iters//2)
                 )
 
             index += 1
@@ -369,8 +369,8 @@ class patch_matching():
                 (ti.Vector([ti.random(float),
                             ti.random(float),
                             ti.random(float)]
-                           ) - 0.5
-                 )*self.delta_norm*ti.pow(2, -iters)
+                           )*2 - 1.0
+                 )*self.delta_norm*ti.pow(2, -iters//2)
             )
             index += 1
 
@@ -476,7 +476,8 @@ class patch_matching():
         Qy_bar = (q_row - cy)/fy
 
         Qz = plane_constant / \
-            (center_normal.z + center_normal.x*Qx_bar + center_normal.y*Qy_bar)
+            (center_normal.z + center_normal.x *
+             Qx_bar + center_normal.y*Qy_bar + EPSILON)
         Qx = Qx_bar*Qz
         Qy = Qy_bar*Qz
         Q = ti.Vector([Qx, Qy, Qz, 1])
