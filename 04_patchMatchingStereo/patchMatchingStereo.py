@@ -1,6 +1,6 @@
 import taichi as ti
 import numpy as np
-
+import matplotlib.pyplot as plt
 
 INFINIT = 1e8
 INTRINSIC_DIMENSION = 3
@@ -688,6 +688,8 @@ class patch_matching():
         )
 
         for i in range(self.iterations):
+
+            ti.sync()
             print("Iteration {} starts".format(i))
 
             if gui_enable:
@@ -696,4 +698,22 @@ class patch_matching():
             self.calculate_cost_and_propagate(i)
 
     def visualize_fields(self, iteration_num: int):
-        pass
+
+        depth_maps = self.depth_maps.to_numpy()[self.src_image_idx]
+        normal_maps = self.normal_maps.to_numpy()[self.src_image_idx]
+        cost_volumes = self.cost_volumes.to_numpy()
+
+        fig = plt.figure()
+        ax1 = fig.add_subplot(221)
+        ax1.imshow(depth_maps, vmin=self.min_depth, vmax=self.min_depth)
+        ax1.title.set_text('depth_maps')
+        ax2 = fig.add_subplot(222)
+        ax2.imshow((normal_maps+1)/2, vmin=0, vmax=1)
+        ax2.title.set_text('normal_maps')
+        ax3 = fig.add_subplot(223)
+        ax3.imshow(cost_volumes, vmin=0, vmax=self.patch_size**2)
+        ax3.title.set_text('cost_volumes')
+        ax4 = fig.add_subplot(224)
+        ax4.imshow(self.images.to_numpy()[self.src_image_idx])
+        ax4.title.set_text('src image')
+        plt.show(block=False)

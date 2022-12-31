@@ -121,7 +121,8 @@ def main():
         images=dataset.images,
         intrinsics=dataset.camera_intrinsics,
         extrinsics=dataset.camera_extrinsics,
-        source_image_idx=SOURCE_IMAGE_IDX
+        source_image_idx=SOURCE_IMAGE_IDX,
+        gui_enable=True
     )
     
     # Copy data to cpu numpy for plt.imshow is slow
@@ -134,7 +135,7 @@ def main():
     ax1.imshow(depth_maps, vmin=MIN_DEPTH, vmax=MAX_DEPTH)
     ax1.title.set_text('depth_maps')
     ax2 = fig.add_subplot(222)
-    ax2.imshow(normal_maps+1, vmin=0, vmax=2)
+    ax2.imshow((normal_maps+1)/2, vmin=0, vmax=1)
     ax2.title.set_text('normal_maps')
     ax3 = fig.add_subplot(223)
     ax3.imshow(cost_volumes, vmin=cost_volumes.min(), vmax=PATCH_SIZE**2)
@@ -142,9 +143,23 @@ def main():
     ax4 = fig.add_subplot(224)
     ax4.imshow(dataset.images[SOURCE_IMAGE_IDX])
     ax4.title.set_text('src image')
-    plt.show()
+    plt.show(block=False)
 
-    pass
+    fig = plt.figure()
+    ax1 = fig.add_subplot(121)
+    ax1.imshow(dataset.gt_depth[SOURCE_IMAGE_IDX],
+               vmin=MIN_DEPTH, vmax=MAX_DEPTH)
+    ax1.title.set_text('ground truth depth')
+    ax2 = fig.add_subplot(122)
+    ax2.imshow(
+        np.abs(dataset.gt_depth[SOURCE_IMAGE_IDX] - depth_maps), vmin=0, vmax=MAX_DEPTH)
+    ax2.title.set_text('depth residual error')
+    plt.show(block=False)
+
+    residual = np.abs(dataset.gt_depth[SOURCE_IMAGE_IDX] - depth_maps).mean()
+    print("Residual depth error", residual)
+
+    input("Press any key to stop.")
 
 if __name__ == '__main__':
     main()
