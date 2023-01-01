@@ -199,14 +199,14 @@ class patch_matching():
             n=THREE_DIMENSION,
             dtype=ti.f32,
             shape=(
-                1 + self.num_neighbors//2*2 + self.num_refinement,
+                1 + self.num_neighbors//2*4 + self.num_refinement,
                 self.resolutions[self.src_image_idx].x
             )
         )
         self.depth_propagate_field = ti.field(
             dtype=ti.f32,
             shape=(
-                1 + self.num_neighbors//2*2 + self.num_refinement,
+                1 + self.num_neighbors//2*4 + self.num_refinement,
                 self.resolutions[self.src_image_idx].x
             )
         )
@@ -292,9 +292,10 @@ class patch_matching():
 
         # Spacial propagation
         for i in range(-self.num_neighbors//2, self.num_neighbors//2+1):
-            if ((col + i >= 0) and (col + i < self.resolutions[self.src_image_idx].y)):
+            # Along rows
+            if ((row + i >= 0) and (row + i < self.resolutions[self.src_image_idx].x)):
                 self.depth_propagate_field[index, patch_cache_index] = \
-                    self.depth_maps[self.src_image_idx, row, col+i]
+                    self.depth_maps[self.src_image_idx, row+i, col]
             else:
                 self.depth_propagate_field[index, patch_cache_index] = (
                     self.depth_maps[self.src_image_idx, row, col] +
@@ -308,13 +309,40 @@ class patch_matching():
                 if self.depth_propagate_field[index, patch_cache_index] < self.min_depth:
                     self.depth_propagate_field[index,
                                                patch_cache_index] = self.min_depth
+            # print("row propagation: ", index, self.depth_propagate_field[index, patch_cache_index])
+            index += 1
 
+            # Along columns
+            if ((col + i >= 0) and (col + i < self.resolutions[self.src_image_idx].y) and (i != 0)):
+                self.depth_propagate_field[index, patch_cache_index] = \
+                    self.depth_maps[self.src_image_idx, row, col+i]
+            elif (i != 0):
+                self.depth_propagate_field[index, patch_cache_index] = (
+                    self.depth_maps[self.src_image_idx, row, col] +
+                    (ti.random(float) - 0.5)*self.delta_depth*ti.pow(2, -iters//2)
+                )
+
+                if self.depth_propagate_field[index, patch_cache_index] > self.max_depth:
+                    self.depth_propagate_field[index,
+                                               patch_cache_index] = self.max_depth
+
+                if self.depth_propagate_field[index, patch_cache_index] < self.min_depth:
+                    self.depth_propagate_field[index,
+                                               patch_cache_index] = self.min_depth
+            else:
+                # The guess for center pixel has been processed in the row
+                # propagation, so it the column propagation should not include
+                # it. Otherwise, the last element in the propagation field will
+                # never be accessed.
+                continue
+
+            # print("col propagation: ", index, self.depth_propagate_field[index, patch_cache_index])
             index += 1
 
         # Random refinement
         for i in range(self.num_refinement):
             self.depth_propagate_field[index, patch_cache_index] = (
-                self.depth_propagate_field[self.num_neighbors//2, patch_cache_index] +
+                self.depth_maps[self.src_image_idx, row, col] +
                 (ti.random(float) - 0.5)*self.delta_depth*ti.pow(2, -iters//2)
             )
 
@@ -325,7 +353,7 @@ class patch_matching():
             if self.depth_propagate_field[index, patch_cache_index] < self.min_depth:
                 self.depth_propagate_field[index,
                                            patch_cache_index] = self.min_depth
-
+            # print("random propagation: ", index, self.depth_propagate_field[index, patch_cache_index])
             index += 1
 
     @ti.func
@@ -341,11 +369,12 @@ class patch_matching():
 
         # Spacial propagation
         for i in range(-self.num_neighbors//2, self.num_neighbors//2+1):
-            if ((col + i >= 0) and (col + i < self.resolutions[self.src_image_idx].y)):
+            # Along rows
+            if ((row + i >= 0) and (row + i < self.resolutions[self.src_image_idx].x)):
                 self.normal_propagate_field[index, patch_cache_index] = ti.Vector(
-                    [self.normal_maps[self.src_image_idx, row, col+i, 0],
-                     self.normal_maps[self.src_image_idx, row, col+i, 1],
-                     self.normal_maps[self.src_image_idx, row, col+i, 2]]
+                    [self.normal_maps[self.src_image_idx, row+i, col, 0],
+                     self.normal_maps[self.src_image_idx, row+i, col, 1],
+                     self.normal_maps[self.src_image_idx, row+i, col, 2]]
                 )
             else:
                 self.normal_propagate_field[index, patch_cache_index] = ti.math.normalize(
@@ -359,19 +388,52 @@ class patch_matching():
                                )*2 - 1.0
                      )*self.delta_norm*ti.pow(2, -iters//2)
                 )
+            # print("row propagation: ", index, self.normal_propagate_field[index, patch_cache_index])
+            index += 1
 
+            # Along columns
+            if ((col + i >= 0) and (col + i < self.resolutions[self.src_image_idx].y) and (i != 0)):
+                self.normal_propagate_field[index, patch_cache_index] = ti.Vector(
+                    [self.normal_maps[self.src_image_idx, row, col+i, 0],
+                     self.normal_maps[self.src_image_idx, row, col+i, 1],
+                     self.normal_maps[self.src_image_idx, row, col+i, 2]]
+                )
+            elif (i != 0):
+                self.normal_propagate_field[index, patch_cache_index] = ti.math.normalize(
+                    ti.Vector(
+                        [self.normal_maps[self.src_image_idx, row, col, 0],
+                         self.normal_maps[self.src_image_idx, row, col, 1],
+                         self.normal_maps[self.src_image_idx, row, col, 2]]) +
+                    (ti.Vector([ti.random(float),
+                                ti.random(float),
+                                ti.random(float)]
+                               )*2 - 1.0
+                     )*self.delta_norm*ti.pow(2, -iters//2)
+                )
+            else:
+                # The guess for center pixel has been processed in the row
+                # propagation, so it the column propagation should not include
+                # it. Otherwise, the last element in the propagation field will
+                # never be accessed.
+                continue
+
+            # print("col propagation: ", index, self.normal_propagate_field[index, patch_cache_index])
             index += 1
 
         # Random refinement
         for i in range(self.num_refinement):
             self.normal_propagate_field[index, patch_cache_index] = ti.math.normalize(
-                self.normal_propagate_field[self.num_neighbors//2, patch_cache_index] +
+                ti.Vector(
+                    [self.normal_maps[self.src_image_idx, row, col, 0],
+                     self.normal_maps[self.src_image_idx, row, col, 1],
+                     self.normal_maps[self.src_image_idx, row, col, 2]]) +
                 (ti.Vector([ti.random(float),
                             ti.random(float),
                             ti.random(float)]
                            )*2 - 1.0
                  )*self.delta_norm*ti.pow(2, -iters//2)
             )
+            # print("random propagation: ", index, self.normal_propagate_field[index, patch_cache_index])
             index += 1
 
     @ti.func

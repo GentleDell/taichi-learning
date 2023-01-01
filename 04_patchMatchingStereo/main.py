@@ -12,7 +12,7 @@ from patchMatchingStereo import patch_matching as pm
 PATCH_SIZE = 35
 ITERATIONS = 3
 NUM_REFINEMENT_GUESS = 2
-NUM_SPACIAL_PROPERGATION = 2
+NUM_SPACIAL_PROPERGATION = 2    # apply to both left/right and top/bottom
 MIN_DEPTH = 0.1
 MAX_DEPTH = 5
 DELTA_NORMAL= 0.2
