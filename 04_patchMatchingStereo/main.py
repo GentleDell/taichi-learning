@@ -9,13 +9,13 @@ from patchMatchingStereo import patch_matching as pm
 
 
 # Patch Matching Parameters
-PATCH_SIZE = 9
-ITERATIONS = 1
+PATCH_SIZE = 35
+ITERATIONS = 3
 NUM_REFINEMENT_GUESS = 2
-NUM_SPACIAL_PROPERGATION = 2
-MIN_DISPARITY = 0.1
-MAX_DISPARITY = 10
-DELTA_NORMAL= 0.2
+NUM_SPACIAL_PROPERGATION = 2    # apply to both left/right and top/bottom
+MIN_DEPTH = 0.1
+MAX_DEPTH = 5.0
+DELTA_NORMAL= 1
 LIKELIHOOD_DECAY = 10
 BALANCE_WEIGHT = 0.9
 TAO_COLOR = 10
@@ -105,9 +105,9 @@ def main():
     pm_solver = pm(
         num_iters=ITERATIONS,
         patch_size=PATCH_SIZE,
-        min_depth=MIN_DISPARITY,
-        max_depth=MAX_DISPARITY,
-        delta_depth=(MAX_DISPARITY-MIN_DISPARITY)/3,
+        min_depth=MIN_DEPTH,
+        max_depth=MAX_DEPTH,
+        delta_depth=(MAX_DEPTH-MIN_DEPTH)/2,
         delta_norm=DELTA_NORMAL,
         num_neighbors=NUM_SPACIAL_PROPERGATION,
         num_refinement=NUM_REFINEMENT_GUESS,
@@ -122,27 +122,44 @@ def main():
         intrinsics=dataset.camera_intrinsics,
         extrinsics=dataset.camera_extrinsics,
         source_image_idx=SOURCE_IMAGE_IDX,
-        gt_depth=dataset.gt_depth
+        gui_enable=True
     )
     
-    # fig = plt.figure()
-    # ax1 = fig.add_subplot(221)
-    # ax1.imshow(pm_solver.src_patch.to_numpy())
-    # ax1.title.set_text('src_patch')
-    # ax2 = fig.add_subplot(222)
-    # ax2.imshow(pm_solver.ref_patch.to_numpy())
-    # ax2.title.set_text('ref_patch')
-    # ax3 = fig.add_subplot(223)
-    # ax3.imshow(pm_solver.patch_cost_debug.to_numpy())
-    # ax3.title.set_text('patch_cost_debug')
-    # ax4 = fig.add_subplot(224)
-    # ax4.imshow(pm_solver.patch_grad_debug.to_numpy())
-    # ax4.title.set_text('patch_grad_debug')
-    # plt.show()
-    #
-    # plt.imshow(cost, vmin = cost.min(), vmax=cost.max())
+    # Copy data to cpu numpy for plt.imshow is slow
+    depth_maps = pm_solver.depth_maps.to_numpy()[SOURCE_IMAGE_IDX]
+    normal_maps= pm_solver.normal_maps.to_numpy()[SOURCE_IMAGE_IDX]
+    cost_volumes=pm_solver.cost_volumes.to_numpy()
 
-    pass
+    fig = plt.figure()
+    ax1 = fig.add_subplot(221)
+    ax1.imshow(depth_maps, vmin=MIN_DEPTH, vmax=MAX_DEPTH)
+    ax1.title.set_text('depth_maps')
+    ax2 = fig.add_subplot(222)
+    ax2.imshow((normal_maps+1)/2, vmin=0, vmax=1)
+    ax2.title.set_text('normal_maps')
+    ax3 = fig.add_subplot(223)
+    ax3.imshow(cost_volumes, vmin=cost_volumes.min(), vmax=PATCH_SIZE**2)
+    ax3.title.set_text('cost_volumes')
+    ax4 = fig.add_subplot(224)
+    ax4.imshow(dataset.images[SOURCE_IMAGE_IDX])
+    ax4.title.set_text('src image')
+    plt.show(block=False)
+
+    fig = plt.figure()
+    ax1 = fig.add_subplot(121)
+    ax1.imshow(dataset.gt_depth[SOURCE_IMAGE_IDX],
+               vmin=MIN_DEPTH, vmax=MAX_DEPTH)
+    ax1.title.set_text('ground truth depth')
+    ax2 = fig.add_subplot(122)
+    ax2.imshow(
+        np.abs(dataset.gt_depth[SOURCE_IMAGE_IDX] - depth_maps), vmin=0, vmax=MAX_DEPTH)
+    ax2.title.set_text('depth residual error')
+    plt.show(block=False)
+
+    residual = np.abs(dataset.gt_depth[SOURCE_IMAGE_IDX] - depth_maps).mean()
+    print("Residual depth error", residual)
+
+    input("Press any key to stop.")
 
 if __name__ == '__main__':
     main()
