@@ -51,8 +51,8 @@ class patch_matching():
 
         self.iterations: int = num_iters               # num of estimation iterations
         self.patch_size: int = patch_size              # size of each patch
-        self.min_depth: int = min_depth                # min supported depth
-        self.max_depth: int = max_depth                # max supported depth
+        self.min_depth: float = min_depth              # min supported depth
+        self.max_depth: float = max_depth              # max supported depth
         self.delta_depth: float = delta_depth          # step depth for refinement
         self.delta_norm: float = delta_norm            # step nomral for refinement
         self.num_neighbors: int = num_neighbors        # num of pixels for spacial prop
